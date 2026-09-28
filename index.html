@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>여백 — 남은 삶 시각화</title>
+<meta name="description" content="생년월일만 입력하면 인생을 한 주(週) 단위 점 그리드로 그려, 지금 이 순간을 조금 더 소중히 살도록 돕는 성찰 도구입니다. 모든 계산은 내 기기 안에서만 이뤄집니다." />
+<meta name="color-scheme" content="light" />
+<meta property="og:title" content="여백 — 남은 삶 시각화" />
+<meta property="og:description" content="인생을 한 주 한 주의 점으로 바라보며 지금을 소중히." />
+<meta property="og:type" content="website" />
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  /* ── 레이아웃 전용(색·폰트크기는 tokens 변수/.t-* 만) ── */
+  .wrap{max-width:680px;margin:0 auto;padding:0 var(--space-5)}
+  .stack > * + *{margin-top:var(--space-4)}
+  .stack-lg > * + *{margin-top:var(--space-7)}
+  header.site{padding:var(--space-5) 0 var(--space-2)}
+  .brand{display:flex;align-items:center;gap:var(--space-2)}
+  .brand svg{flex:0 0 auto}
+  main{padding-bottom:var(--space-8)}
+  section{scroll-margin-top:var(--space-6)}
+  .hidden{display:none !important}
+
+  /* 폼 */
+  .field{display:flex;flex-direction:column;gap:var(--space-2)}
+  label.lbl{font-family:var(--font-sans);font-size:var(--text-caption-size);font-weight:600;
+    letter-spacing:.02em;color:var(--color-ink)}
+  input[type=date], select, input[type=number]{
+    font-family:var(--font-sans);font-size:1rem;color:var(--color-ink);
+    background:var(--color-surface);border:1.5px solid var(--color-border);
+    border-radius:var(--radius-sm);padding:14px 14px;width:100%;min-height:var(--tap-min);
+    -webkit-appearance:none;appearance:none}
+  select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2380483C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat;background-position:right 14px center;padding-right:44px}
+  input:focus-visible, select:focus-visible, .btn:focus-visible, a:focus-visible{
+    outline:2.5px solid var(--color-accentStrong);outline-offset:2px}
+  .form-err{color:var(--color-accentStrong);font-weight:600}
+  .btn{width:100%;min-height:var(--tap-min);font-size:var(--text-button-size,1rem);
+    font-weight:var(--text-button-weight,600)}
+  .btn-primary{box-shadow:0 6px 18px -10px var(--color-accentStrong)}
+
+  /* 결과 헤드라인 */
+  .headline{font-family:var(--font-sans);font-weight:var(--text-h2-weight);
+    font-size:var(--text-h2-size);line-height:1.4;letter-spacing:var(--text-h2-ls);
+    color:var(--color-ink)}
+  .headline .n{font-weight:800;font-variant-numeric:tabular-nums}
+  .headline .n-lived{color:var(--color-ink)}
+  .headline .n-remain{color:var(--color-accentText)}
+  .subline{font-variant-numeric:tabular-nums}
+
+  /* 진행률 바(라운드 카드 아님 — 얇은 선) */
+  .progress{display:flex;flex-direction:column;gap:var(--space-2)}
+  .progress-track{height:6px;background:var(--seed-100);border-radius:var(--radius-pill);overflow:hidden}
+  .progress-fill{height:100%;background:var(--color-accentStrong);width:0;border-radius:var(--radius-pill);
+    transition:width var(--dur-slow) var(--ease-out)}
+
+  /* ── 점 그리드(주인공) ── */
+  .grid-legend{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-5);align-items:center}
+  .legend-item{display:inline-flex;align-items:center;gap:8px;font-size:var(--text-caption-size);
+    color:var(--color-muted)}
+  .legend-dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
+  .lg-lived{background:var(--seed-400)}
+  .lg-now{background:var(--color-accent);box-shadow:0 0 0 2px var(--color-bg),0 0 0 3.5px var(--color-accent)}
+  .lg-remain{background:var(--seed-100);box-shadow:inset 0 0 0 1px var(--seed-200)}
+
+  .matrix{display:flex;flex-direction:column;gap:clamp(2px,0.7vw,4px)}
+  .yline{display:grid;grid-template-columns:1.7rem 1fr;align-items:center;gap:var(--space-2)}
+  .yline.decade{margin-top:clamp(3px,1vw,7px)}
+  .yr-lbl{font-size:10px;line-height:1;color:var(--color-muted);text-align:right;
+    font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .yr-row{display:grid;grid-template-columns:repeat(52,1fr);gap:clamp(2px,0.7vw,4px)}
+  .dot{aspect-ratio:1/1;border-radius:50%;background:var(--seed-100);
+    box-shadow:inset 0 0 0 1px var(--seed-200)}
+  .dot.lived{background:var(--seed-400);box-shadow:none}
+  .dot.bonus{background:var(--color-accentText);box-shadow:none;opacity:.9}
+  .dot.now{background:var(--color-accent);box-shadow:0 0 0 1.5px var(--color-bg),0 0 0 3px var(--color-accent);
+    z-index:1;animation:pulse 2.4s var(--ease-inout) infinite}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.35)}}
+  @media (prefers-reduced-motion:reduce){.dot.now{animation:none}}
+
+  .grid-caption{font-size:var(--text-caption-size);color:var(--color-muted);line-height:1.6}
+
+  /* 성찰 블록(유일한 surface 블록 — 카드 스택 금지) */
+  .reflect{background:var(--color-surface);border:1px solid var(--color-border);
+    border-radius:var(--radius-md);padding:var(--space-5)}
+  .reflect .quote{color:var(--color-ink);font-weight:500;line-height:1.6}
+  .reflect .refresh{display:inline-flex;align-items:center;gap:6px;background:transparent;border:0;
+    cursor:pointer;color:var(--color-accentText);font-family:var(--font-sans);
+    font-size:var(--text-caption-size);font-weight:600;padding:6px 0;min-height:var(--tap-min)}
+
+  /* 구분선(카드 대신 에디토리얼 헤어라인) */
+  .rule{height:1px;background:var(--color-border);border:0}
+
+  /* 안전 고지 푸터(상시) */
+  footer.safety{border-top:1px solid var(--color-border);margin-top:var(--space-7);
+    padding:var(--space-6) 0 calc(var(--space-7) + var(--safe-bottom))}
+  .safety .note{color:var(--color-muted);line-height:1.7}
+  .crisis{display:flex;gap:10px;align-items:flex-start;margin-top:var(--space-4)}
+  .crisis svg{flex:0 0 auto;margin-top:2px}
+  .crisis .txt{color:var(--color-body);line-height:1.6}
+  .crisis a{color:var(--color-accentText);font-weight:700;text-decoration:none;white-space:nowrap}
+  .crisis a:hover{text-decoration:underline}
+
+  .center{text-align:center}
+  .muted{color:var(--color-muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <circle cx="13" cy="13" r="11.5" stroke="var(--color-accent)" stroke-width="1.4"/>
+        <circle cx="13" cy="13" r="4.4" fill="var(--color-accent)"/>
+      </svg>
+      <span class="t-eyebrow">여백 · LIFE IN WEEKS</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── 입력(온보딩) ── -->
+    <section id="view-input" class="stack-lg" aria-label="생년월일 입력">
+      <div class="stack">
+        <h1 class="t-display">남은 삶을,<br/>주(週)로 바라보기</h1>
+        <p class="t-lead">인생을 한 주 한 주의 점으로 그려 봅니다. 지나온 시간을 헤아리고, 앞으로의 시간을 조금 더 소중히 살기 위해서요.</p>
+      </div>
+
+      <form id="form" class="stack" novalidate>
+        <div class="field">
+          <label class="lbl" for="birth">생년월일</label>
+          <input type="date" id="birth" name="birth" min="1900-01-01" required autocomplete="bday" />
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="preset">기대수명 기준 <span class="muted">(공개 통계 평균)</span></label>
+          <select id="preset" name="preset">
+            <option value="83.5">한국 평균 · 약 83세</option>
+            <option value="80.6">한국 남성 · 약 81세</option>
+            <option value="86.6">한국 여성 · 약 87세</option>
+            <option value="84.5">일본 · 약 85세</option>
+            <option value="73.3">세계 평균 · 약 73세</option>
+            <option value="custom">직접 입력</option>
+          </select>
+        </div>
+
+        <div class="field hidden" id="custom-field">
+          <label class="lbl" for="customyears">기대수명 직접 입력 (년)</label>
+          <input type="number" id="customyears" name="customyears" min="1" max="130" step="0.5" inputmode="decimal" placeholder="예: 90" />
+        </div>
+
+        <p id="err" class="t-caption form-err hidden" role="alert"></p>
+
+        <button type="submit" class="btn btn-primary t-button">내 인생 그리기</button>
+        <p class="t-caption muted center">입력한 값은 이 기기에만 저장돼요. 서버로 전송되지 않습니다.</p>
+      </form>
+    </section>
+
+    <!-- ── 결과 ── -->
+    <section id="view-result" class="stack-lg hidden" aria-label="시각화 결과">
+      <div class="stack">
+        <p class="headline" id="headline"><!-- JS --></p>
+        <p class="t-body subline muted" id="subline"><!-- JS --></p>
+      </div>
+
+      <div class="progress" aria-label="인생 진행률">
+        <p class="t-body" id="progress-text"><!-- JS --></p>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+
+      <hr class="rule" />
+
+      <div class="stack">
+        <div class="grid-legend" aria-hidden="true">
+          <span class="legend-item"><span class="legend-dot lg-lived"></span>지나온 주</span>
+          <span class="legend-item"><span class="legend-dot lg-now"></span>이번 주</span>
+          <span class="legend-item"><span class="legend-dot lg-remain"></span>남은 주</span>
+        </div>
+        <div class="matrix" id="matrix" role="img" aria-label="인생을 한 주 단위 점으로 나타낸 그리드"></div>
+        <p class="grid-caption">점 하나 = 한 주(週) · 한 줄 = 1년(52주). 위에서 아래로 나이가 듭니다. 왼쪽 숫자는 나이(세)예요.</p>
+      </div>
+
+      <div class="reflect stack">
+        <div class="brand">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/>
+          </svg>
+          <span class="t-eyebrow">오늘의 성찰</span>
+        </div>
+        <p class="t-body" id="reflect-week"><!-- JS --></p>
+        <p class="t-h3 quote" id="reflect-quote"><!-- JS --></p>
+        <button type="button" class="refresh" id="reflect-refresh">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/>
+          </svg>
+          다른 성찰 보기
+        </button>
+      </div>
+
+      <button type="button" class="btn btn-ghost t-button" id="btn-again">생일 다시 입력하기</button>
+    </section>
+  </main>
+
+  <!-- ── 안전 고지(상시) ── -->
+  <footer class="safety">
+    <p class="t-caption note">본 화면은 <strong>공개 통계 평균에 기반한 성찰용 추정치</strong>입니다. 의료적 예측이 아니며 진단·치료 목적이 아닙니다. 실제 삶의 길이는 누구도 알 수 없고, 오늘의 선택으로 얼마든지 달라집니다.</p>
+    <div class="crisis">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/>
+      </svg>
+      <p class="t-caption txt">힘든 마음이 드신다면 언제든 도움을 받을 수 있습니다 — 자살예방상담 <a href="tel:109">☎ 109</a> · <a href="tel:1393">1393</a> (24시간).</p>
+    </div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var LS_KEY = "yeobaek.v1";
+  var DAY = 86400000, WEEK = DAY*7;
+  var WEEKS_PER_YEAR = 52; // life-in-weeks 관례(약). 헤드라인·그리드 일치.
+
+  var QUOTES = [
+    "오늘 하루도 당신의 삶에서 단 한 번뿐입니다.",
+    "시간은 우리가 가진 가장 소중한 재료입니다.",
+    "먼 훗날이 아니라, 바로 지금을 사는 연습.",
+    "작은 순간들이 모여 한 사람의 인생이 됩니다.",
+    "무엇을 더 하느냐보다, 무엇에 마음을 두느냐.",
+    "오늘 만나는 사람에게 조금 더 다정할 것.",
+    "서두르지 않되, 미루지도 않기.",
+    "지나온 주만큼, 앞으로의 주도 온전히 당신의 것입니다."
+  ];
+
+  var $ = function(id){ return document.getElementById(id); };
+  var viewInput = $("view-input"), viewResult = $("view-result");
+  var form = $("form"), birthEl = $("birth"), presetEl = $("preset");
+  var customField = $("custom-field"), customEl = $("customyears"), errEl = $("err");
+  var quoteIdx = 0;
+
+  // 오늘 이후 날짜 선택 방지
+  (function(){
+    var t = new Date();
+    var mm = String(t.getMonth()+1).padStart(2,"0"), dd = String(t.getDate()).padStart(2,"0");
+    birthEl.max = t.getFullYear()+"-"+mm+"-"+dd;
+  })();
+
+  presetEl.addEventListener("change", function(){
+    var custom = presetEl.value === "custom";
+    customField.classList.toggle("hidden", !custom);
+    if(custom){ customEl.focus(); }
+  });
+
+  function showErr(msg){ errEl.textContent = msg; errEl.classList.remove("hidden"); }
+  function clearErr(){ errEl.classList.add("hidden"); errEl.textContent = ""; }
+
+  function lifeYearsFromInputs(){
+    if(presetEl.value === "custom"){
+      var v = parseFloat(customEl.value);
+      if(!isFinite(v) || v <= 0) return null;
+      return Math.min(130, v);
+    }
+    return parseFloat(presetEl.value);
+  }
+
+  // 로컬 자정 기준 Date (타임존 오차 방지)
+  function parseBirth(str){
+    if(!str) return null;
+    var p = str.split("-");
+    if(p.length !== 3) return null;
+    var y = +p[0], m = +p[1], d = +p[2];
+    var dt = new Date(y, m-1, d);
+    if(dt.getFullYear() !== y || dt.getMonth() !== m-1 || dt.getDate() !== d) return null; // 2월 30일 등
+    return dt;
+  }
+
+  function fmt(n){ return Math.round(n).toLocaleString("ko-KR"); }
+
+  function compute(birthStr, lifeYears){
+    var birth = parseBirth(birthStr);
+    if(!birth) return { error: "생년월일을 다시 확인해 주세요." };
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if(birth.getTime() > today.getTime()) return { error: "미래 날짜는 입력할 수 없어요. 생년월일을 확인해 주세요." };
+    var ms = today.getTime() - birth.getTime();
+    var livedDays = Math.floor(ms / DAY);
+    if(livedDays > 130*366) return { error: "생년월일을 다시 확인해 주세요 (130세를 넘는 값이에요)." };
+    var livedWeeks = Math.floor(ms / WEEK);
+    var totalWeeks = Math.round(lifeYears * WEEKS_PER_YEAR);
+    var remainWeeks = totalWeeks - livedWeeks;
+    var livedYears = Math.floor(livedDays / 365.25);
+    var livedMonths = Math.floor((livedDays - livedYears*365.25) / 30.4375);
+    var pct = totalWeeks > 0 ? (livedWeeks / totalWeeks) * 100 : 0;
+    return {
+      birth: birth, lifeYears: lifeYears,
+      livedDays: livedDays, livedWeeks: livedWeeks, totalWeeks: totalWeeks,
+      remainWeeks: remainWeeks, livedYears: livedYears, livedMonths: livedMonths,
+      pct: pct, bonus: remainWeeks <= 0
+    };
+  }
+
+  function pickQuoteForToday(){
+    var now = new Date();
+    var start = new Date(now.getFullYear(),0,0);
+    var doy = Math.floor((now - start) / DAY);
+    return doy % QUOTES.length;
+  }
+
+  function renderQuote(){
+    $("reflect-quote").textContent = "“" + QUOTES[quoteIdx] + "”";
+  }
+
+  function renderMatrix(r){
+    var matrix = $("matrix");
+    matrix.innerHTML = "";
+    var maxWeeks = Math.max(r.totalWeeks, r.livedWeeks + 1);
+    var frag = document.createDocumentFragment();
+    var cell = 0, year = 0;
+    while(cell < maxWeeks){
+      var yline = document.createElement("div");
+      yline.className = "yline" + (year % 10 === 0 && year > 0 ? " decade" : "");
+      var lbl = document.createElement("div");
+      lbl.className = "yr-lbl";
+      lbl.textContent = (year % 10 === 0) ? String(year) : "";
+      var row = document.createElement("div");
+      row.className = "yr-row";
+      for(var c=0; c<52 && cell<maxWeeks; c++, cell++){
+        var dot = document.createElement("span");
+        var cls = "dot";
+        if(cell < r.livedWeeks){ cls += (cell >= r.totalWeeks) ? " bonus" : " lived"; }
+        else if(cell === r.livedWeeks){ cls += " now"; }
+        else { cls += " remain"; }
+        dot.className = cls;
+        row.appendChild(dot);
+      }
+      yline.appendChild(lbl); yline.appendChild(row);
+      frag.appendChild(yline);
+      year++;
+    }
+    matrix.appendChild(frag);
+  }
+
+  function render(r){
+    // 헤드라인
+    var hl = $("headline");
+    if(r.bonus){
+      var over = Math.abs(r.remainWeeks);
+      hl.innerHTML = "당신은 인생 약 <span class='n n-lived'>" + fmt(r.totalWeeks) +
+        "</span>주를 이미 살아냈고, 통계 기대치를 <span class='n n-remain'>" + fmt(over) +
+        "</span>주 넘어 살고 계십니다. 지금은 <strong>보너스 시간</strong>이에요.";
+    } else {
+      hl.innerHTML = "당신은 인생 약 " + fmt(r.totalWeeks) + "주 중 <span class='n n-lived'>" +
+        fmt(r.livedWeeks) + "</span>주를 살았습니다. 약 <span class='n n-remain'>" +
+        fmt(r.remainWeeks) + "</span>주가 남았습니다.";
+    }
+    // 보조표기
+    $("subline").textContent = "지나온 시간 · " + fmt(r.livedDays) + "일 = " +
+      r.livedYears + "년 " + r.livedMonths + "개월";
+    // 진행률
+    var p = Math.min(100, Math.round(r.pct));
+    $("progress-text").textContent = r.bonus
+      ? "인생의 100%를 지나 보너스 구간을 살고 계십니다."
+      : "인생의 약 " + p + "%를 지났습니다. 아직 " + (100 - p) + "%가 남아 있어요.";
+    $("progress-fill").style.width = Math.min(100, r.pct) + "%";
+    // 그리드
+    renderMatrix(r);
+    // 성찰
+    $("reflect-week").textContent = "오늘은 당신 인생의 " + fmt(r.livedWeeks + 1) +
+      "주째입니다. 오늘 하나를, 의미 있게.";
+    quoteIdx = pickQuoteForToday();
+    renderQuote();
+    // 뷰 전환
+    viewInput.classList.add("hidden");
+    viewResult.classList.remove("hidden");
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
+  function save(birthStr, presetVal, customVal){
+    try{ localStorage.setItem(LS_KEY, JSON.stringify({ birth: birthStr, preset: presetVal, custom: customVal })); }catch(e){}
+  }
+  function load(){
+    try{ return JSON.parse(localStorage.getItem(LS_KEY) || "null"); }catch(e){ return null; }
+  }
+
+  form.addEventListener("submit", function(ev){
+    ev.preventDefault();
+    clearErr();
+    if(!birthEl.value){ showErr("생년월일을 입력해 주세요."); birthEl.focus(); return; }
+    var ly = lifeYearsFromInputs();
+    if(ly === null){ showErr("기대수명(년)을 올바르게 입력해 주세요."); customEl.focus(); return; }
+    var r = compute(birthEl.value, ly);
+    if(r.error){ showErr(r.error); return; }
+    save(birthEl.value, presetEl.value, customEl.value);
+    render(r);
+  });
+
+  $("btn-again").addEventListener("click", function(){
+    viewResult.classList.add("hidden");
+    viewInput.classList.remove("hidden");
+    window.scrollTo({ top: 0, behavior: "auto" });
+    birthEl.focus();
+  });
+
+  $("reflect-refresh").addEventListener("click", function(){
+    quoteIdx = (quoteIdx + 1) % QUOTES.length;
+    renderQuote();
+  });
+
+  // 재방문 복원
+  (function(){
+    var saved = load();
+    if(saved && saved.birth){
+      birthEl.value = saved.birth;
+      if(saved.preset){ presetEl.value = saved.preset; }
+      if(saved.preset === "custom"){ customField.classList.remove("hidden"); customEl.value = saved.custom || ""; }
+      var ly = lifeYearsFromInputs();
+      if(ly !== null){
+        var r = compute(saved.birth, ly);
+        if(!r.error){ render(r); }
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>
